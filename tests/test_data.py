@@ -70,7 +70,7 @@ def test_loader_reads_tsv_cohorts_and_labels(tmp_path):
     assert loaded.expression.loc["s3", "A"] == 7
 
 
-def test_loader_rejects_missing_labels(tmp_path):
+def test_loader_rejects_when_no_samples_match_labels(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     pd.DataFrame({"Ensembl_ID": ["A"], "s1": [1]}).to_csv(
@@ -79,8 +79,37 @@ def test_loader_rejects_missing_labels(tmp_path):
     pd.DataFrame({"sample_id": [], "subtype": []}).to_csv(
         data_dir / "bagaev_subtypes.csv", index=False
     )
-    with pytest.raises(ValueError, match="Missing labels"):
+    with pytest.raises(ValueError, match="No expression samples match"):
         load_expression_data(data_dir)
+
+
+def test_loader_keeps_only_matched_expression_and_label_ids(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame(
+        {
+            "Ensembl_ID": ["ENSG1", "ENSG2"],
+            "TCGA-38-7271-01A": [1, 2],
+            "TCGA-99-9999-01A": [3, 4],
+        }
+    ).to_csv(data_dir / "_BRCA.csv", index=False)
+    pd.DataFrame(
+        {
+            "sample_id": [
+                "TCGA-38-7271",
+                "TCGA-00-0000",
+                "TCGA-00-0001-01A",
+                "TCGA-00-0001-02B",
+            ],
+            "subtype": ["TME_1", "TME_2", "TME_3", "TME_4"],
+        }
+    ).to_csv(data_dir / "bagaev_subtypes.csv", index=False)
+
+    loaded = load_expression_data(data_dir)
+
+    assert loaded.expression.index.tolist() == ["TCGA-38-7271-01A"]
+    assert loaded.labels.to_dict() == {"TCGA-38-7271-01A": "TME_1"}
+    assert loaded.cohorts.to_dict() == {"TCGA-38-7271-01A": "BRCA"}
 
 
 def test_normalization_has_fixed_library_scale_before_log():

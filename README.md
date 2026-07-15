@@ -38,6 +38,9 @@ TCGA expression sample barcodes are matched to subtype labels at patient level.
 For example, expression sample `TCGA-38-7271-01A` is matched against label ID
 `TCGA-38-7271` by dropping the final `-01A` portion. Full expression sample IDs are
 preserved in embeddings and predictions. Non-TCGA mock sample IDs are unchanged.
+Loading uses the intersection of expression and subtype IDs: unmatched rows in the
+label file and expression samples without a subtype are excluded. An error is raised
+only when no expression samples match any subtype label.
 
 All cohorts must contain the same genes (column order may differ), sample IDs must
 be globally unique, and values must be finite and non-negative. By default the

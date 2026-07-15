@@ -122,8 +122,6 @@ def _read_labels(path: Path, sample_column: str, label_column: str) -> pd.Series
         raise ValueError(f"Label file {path} is missing columns: {sorted(missing)}")
     labels = labels[[sample_column, label_column]].copy()
     labels[sample_column] = labels[sample_column].astype(str)
-    if labels[sample_column].duplicated().any():
-        raise ValueError(f"Duplicate sample IDs in label file {path}")
     if labels[label_column].isna().any():
         raise ValueError(f"Missing subtype values in label file {path}")
     return labels.set_index(sample_column)[label_column].astype(str)
@@ -143,6 +141,9 @@ def _match_labels_to_expression(
     canonical_labels = pd.DataFrame(
         {"match_id": label_match_ids, "subtype": labels.to_numpy()}
     )
+    canonical_labels = canonical_labels.loc[
+        canonical_labels["match_id"].isin(set(expression_match_ids))
+    ]
     conflicting = canonical_labels.groupby("match_id")["subtype"].nunique()
     conflicting = conflicting[conflicting > 1]
     if len(conflicting):
@@ -154,11 +155,14 @@ def _match_labels_to_expression(
         "match_id"
     )["subtype"]
     matched = canonical_labels.reindex(expression_match_ids)
-    if matched.isna().any():
-        missing = expression_match_ids[matched.isna()]
-        raise ValueError(f"Missing labels for samples: {missing[:5].tolist()}")
+    keep = matched.notna().to_numpy()
+    if not keep.any():
+        raise ValueError("No expression samples match the subtype label file.")
     return pd.Series(
-        matched.to_numpy(), index=expression_index, name="subtype", dtype=str
+        matched.to_numpy()[keep],
+        index=expression_index[keep],
+        name="subtype",
+        dtype=str,
     )
 
 
@@ -222,6 +226,8 @@ def load_expression_data(
     cohorts = pd.concat(cohort_parts).loc[expression.index]
     labels = _read_labels(label_path, sample_column, label_column)
     labels = _match_labels_to_expression(expression.index, labels)
+    expression = expression.loc[labels.index]
+    cohorts = cohorts.loc[labels.index]
     return ExpressionDataset(expression=expression, labels=labels, cohorts=cohorts)
 
 
