@@ -31,6 +31,12 @@ def _parser() -> argparse.ArgumentParser:
     train.add_argument("--epochs", type=int, default=300)
     train.add_argument("--seed", type=int, default=42)
     train.add_argument(
+        "--input-transform",
+        choices=("log2p1", "raw"),
+        default="log2p1",
+        help="on-disk expression scale (default: log2(count + 1))",
+    )
+    train.add_argument(
         "--normalize",
         action="store_true",
         help="library-normalize and log1p before scVI (raw counts are the default)",
@@ -68,6 +74,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             n_latent=args.latent_dim,
             max_epochs=args.epochs,
             random_state=args.seed,
+            input_transform=args.input_transform,
             normalize=args.normalize,
         )
         print(result.classifier_result.fold_metrics.to_string(index=False))

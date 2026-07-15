@@ -27,12 +27,15 @@ For example:
 
 ```text
 Ensembl_ID       SAMPLE_001  SAMPLE_002
-ENSG00000000001  12          8
-ENSG00000000002  3           17
+ENSG00000000001  3.70044     3.16993
+ENSG00000000002  2.00000     4.16993
 ```
 
 The loader transposes cohort matrices internally, returning samples in rows and
-Ensembl genes in columns to the modeling code.
+Ensembl genes in columns to the modeling code. Expression values are assumed to be
+`log2(count + 1)` and are restored with `round(2**value - 1)` during loading, so
+scVI receives raw count-valued data. For files already containing raw counts, pass
+`input_transform="raw"` to `load_expression_data()` or `load_new_cohort()`.
 
 TCGA expression sample barcodes are matched to subtype labels at patient level.
 For example, expression sample `TCGA-38-7271-01A` is matched against label ID

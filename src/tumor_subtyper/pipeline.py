@@ -17,7 +17,12 @@ from tumor_subtyper.classifiers import (
     save_classifier,
     train_classifier,
 )
-from tumor_subtyper.data import load_expression_data, load_new_cohort, normalize_expression
+from tumor_subtyper.data import (
+    InputTransform,
+    load_expression_data,
+    load_new_cohort,
+    normalize_expression,
+)
 from tumor_subtyper.embedding import get_embedding_scvi, train_scvi_embedding
 
 
@@ -44,6 +49,7 @@ def train_pipeline(
     *,
     label_file: str = "bagaev_subtypes.csv",
     cohort_files: list[str | Path] | None = None,
+    input_transform: InputTransform = "log2p1",
     model_kind: ModelKind = "xgboost",
     n_splits: int = 5,
     n_latent: int = 20,
@@ -57,7 +63,10 @@ def train_pipeline(
     """Load cohorts, train scVI, run CV, fit a classifier, and save artifacts."""
 
     dataset = load_expression_data(
-        data_dir, label_file=label_file, cohort_files=cohort_files
+        data_dir,
+        label_file=label_file,
+        cohort_files=cohort_files,
+        input_transform=input_transform,
     )
     artifacts = Path(artifact_dir)
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -94,6 +103,7 @@ def train_pipeline(
         "latent_features": embeddings.columns.astype(str).tolist(),
         "model_kind": model_kind,
         "label_file": label_file,
+        "input_transform": input_transform,
         "normalization": "library_log1p" if normalize else "none",
         "normalization_target_sum": normalization_target_sum if normalize else None,
     }
@@ -114,7 +124,11 @@ def predict_new_cohort(
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Training manifest not found: {manifest_path}")
     manifest = json.loads(manifest_path.read_text())
-    expression = load_new_cohort(cohort_file, reference_genes=manifest["genes"])
+    expression = load_new_cohort(
+        cohort_file,
+        reference_genes=manifest["genes"],
+        input_transform=manifest.get("input_transform", "raw"),
+    )
     if manifest.get("normalization") == "library_log1p":
         expression = normalize_expression(
             expression, target_sum=float(manifest["normalization_target_sum"])

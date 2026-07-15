@@ -32,8 +32,9 @@ def generate_mock_data(
     """Write reproducible count-like expression with subtype and cohort effects.
 
     The subtype signal is shared across cohorts, while cohort-specific multiplicative
-    shifts create an explicit batch effect. Values are synthetic integer counts and
-    labels are placeholders, not real TCGA or Bagaev data.
+    shifts create an explicit batch effect. Synthetic integer counts are written as
+    ``log2(count + 1)`` to mimic the input contract and are restored by the loader.
+    Labels are placeholders, not real TCGA or Bagaev data.
     """
 
     if min(n_cohorts, samples_per_cohort, n_genes, n_subtypes) < 2:
@@ -68,7 +69,8 @@ def generate_mock_data(
         mean *= library_effect[:, None]
         counts = rng.poisson(mean).astype(np.int64)
         sample_ids = [f"MOCK_{cohort}_{i + 1:04d}" for i in range(samples_per_cohort)]
-        frame = pd.DataFrame(counts.T, index=genes, columns=sample_ids)
+        logged_counts = np.log2(counts.astype(np.float64) + 1.0)
+        frame = pd.DataFrame(logged_counts.T, index=genes, columns=sample_ids)
         frame.index.name = "Ensembl_ID"
         path = output / f"_{cohort}.csv"
         frame.to_csv(path)
@@ -89,7 +91,8 @@ def generate_mock_data(
         mean = baseline[None, :] * subtype_effect[labels] * unseen_batch[None, :]
         counts = rng.poisson(mean).astype(np.int64)
         sample_ids = [f"MOCK_UNSEEN_{i + 1:04d}" for i in range(n_new)]
-        new_frame = pd.DataFrame(counts.T, index=genes, columns=sample_ids)
+        logged_counts = np.log2(counts.astype(np.float64) + 1.0)
+        new_frame = pd.DataFrame(logged_counts.T, index=genes, columns=sample_ids)
         new_frame.index.name = "Ensembl_ID"
         new_data_dir = output / "new_data"
         new_data_dir.mkdir(parents=True, exist_ok=True)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Sequence
+from typing import Literal, Sequence
 
 import numpy as np
 import pandas as pd
@@ -13,6 +13,7 @@ import pandas as pd
 DEFAULT_LABEL_FILE = "bagaev_subtypes.csv"
 SUPPORTED_EXPRESSION_SUFFIXES = {".csv", ".tsv", ".tab"}
 GENE_ID_COLUMN = "Ensembl_ID"
+InputTransform = Literal["log2p1", "raw"]
 TCGA_SAMPLE_BARCODE = re.compile(
     r"^(TCGA-[A-Za-z0-9]{2}-[A-Za-z0-9]{4})-[A-Za-z0-9]{3}$",
     flags=re.IGNORECASE,
@@ -73,7 +74,22 @@ def _separator_for(path: Path) -> str:
     )
 
 
-def _read_expression_file(path: Path) -> pd.DataFrame:
+def restore_raw_counts(expression: pd.DataFrame) -> pd.DataFrame:
+    """Invert ``log2(count + 1)`` and round numerical noise to count values."""
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        restored = np.exp2(expression.astype(float)) - 1.0
+    if not np.isfinite(restored.to_numpy()).all():
+        raise ValueError("Inverse log2p1 transformation produced non-finite counts.")
+    restored = restored.clip(lower=0.0).round()
+    restored.index = expression.index
+    restored.columns = expression.columns
+    return restored
+
+
+def _read_expression_file(
+    path: Path, *, input_transform: InputTransform = "log2p1"
+) -> pd.DataFrame:
     table = pd.read_csv(path, sep=_separator_for(path))
     if table.empty:
         raise ValueError(f"Expression file is empty: {path}")
@@ -101,6 +117,10 @@ def _read_expression_file(path: Path) -> pd.DataFrame:
         raise ValueError(f"Expression values must be finite in {path}")
     if (values < 0).any():
         raise ValueError(f"Expression values must be non-negative in {path}")
+    if input_transform == "log2p1":
+        frame = restore_raw_counts(frame)
+    elif input_transform != "raw":
+        raise ValueError("input_transform must be 'log2p1' or 'raw'.")
     frame.index = frame.index.astype(str)
     frame.columns = frame.columns.astype(str)
     frame.index.name = "sample_id"
@@ -173,11 +193,13 @@ def load_expression_data(
     sample_column: str = "sample_id",
     label_column: str = "subtype",
     cohort_files: Sequence[str | Path] | None = None,
+    input_transform: InputTransform = "log2p1",
 ) -> ExpressionDataset:
     """Load labeled cohort CSV files from ``data_dir``.
 
     Each expression table is genes-by-samples with an ``Ensembl_ID`` column and
     one remaining column per sample. It is transposed to samples-by-genes in memory.
+    By default, values are interpreted as ``log2(count + 1)`` and restored to counts.
     Cohort membership is derived from the filename (``_BRCA.csv`` -> ``BRCA``).
     Genes must match across cohorts; ordering is aligned to the first file.
     """
@@ -205,7 +227,7 @@ def load_expression_data(
     reference_genes: pd.Index | None = None
     seen_samples: set[str] = set()
     for path in files:
-        frame = _read_expression_file(path)
+        frame = _read_expression_file(path, input_transform=input_transform)
         duplicated = seen_samples.intersection(frame.index)
         if duplicated:
             raise ValueError(f"Sample IDs occur in multiple cohorts: {sorted(duplicated)[:5]}")
@@ -231,10 +253,15 @@ def load_expression_data(
     return ExpressionDataset(expression=expression, labels=labels, cohorts=cohorts)
 
 
-def load_new_cohort(path: str | Path, *, reference_genes: Sequence[str] | None = None) -> pd.DataFrame:
+def load_new_cohort(
+    path: str | Path,
+    *,
+    reference_genes: Sequence[str] | None = None,
+    input_transform: InputTransform = "log2p1",
+) -> pd.DataFrame:
     """Load an unlabeled cohort and optionally align it to training genes."""
 
-    expression = _read_expression_file(Path(path))
+    expression = _read_expression_file(Path(path), input_transform=input_transform)
     if reference_genes is not None:
         reference = pd.Index(reference_genes, dtype="object")
         missing = reference.difference(expression.columns)

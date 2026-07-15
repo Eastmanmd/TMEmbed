@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import pytest
 
 from tumor_subtyper.data import (
@@ -6,6 +7,7 @@ from tumor_subtyper.data import (
     load_expression_data,
     load_new_cohort,
     normalize_expression,
+    restore_raw_counts,
 )
 from tumor_subtyper.mock import generate_mock_data
 
@@ -42,7 +44,7 @@ def test_loader_aligns_gene_order(tmp_path):
         {"sample_id": ["s1", "s2", "s3", "s4"], "subtype": ["a", "b", "a", "b"]}
     ).to_csv(data_dir / "bagaev_subtypes.csv", index=False)
 
-    loaded = load_expression_data(data_dir)
+    loaded = load_expression_data(data_dir, input_transform="raw")
     assert list(loaded.expression.columns) == ["A", "B"]
     assert loaded.expression.loc["s3", "A"] == 7
 
@@ -58,7 +60,9 @@ def test_loader_reads_tsv_cohorts_and_labels(tmp_path):
         {"sample_id": ["s1", "s2", "s3", "s4"], "subtype": ["a", "b", "a", "b"]}
     ).to_csv(data_dir / "bagaev_subtypes.tsv", sep="\t", index=False)
 
-    loaded = load_expression_data(data_dir, label_file="bagaev_subtypes.tsv")
+    loaded = load_expression_data(
+        data_dir, label_file="bagaev_subtypes.tsv", input_transform="raw"
+    )
 
     assert loaded.expression.shape == (4, 2)
     assert loaded.cohorts.to_dict() == {
@@ -117,6 +121,41 @@ def test_normalization_has_fixed_library_scale_before_log():
     normalized = normalize_expression(expression, target_sum=100)
     restored = normalized.applymap(lambda value: __import__("numpy").expm1(value))
     assert restored.sum(axis=1).round(8).tolist() == [100.0, 100.0]
+
+
+def test_loader_restores_log2p1_values_to_raw_counts(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    raw_counts = np.array([[0, 3], [8, 17]])
+    pd.DataFrame(
+        {
+            "Ensembl_ID": ["ENSG1", "ENSG2"],
+            "s1": np.log2(raw_counts[:, 0] + 1),
+            "s2": np.log2(raw_counts[:, 1] + 1),
+        }
+    ).to_csv(data_dir / "_ONE.csv", index=False)
+    pd.DataFrame(
+        {"sample_id": ["s1", "s2"], "subtype": ["a", "b"]}
+    ).to_csv(data_dir / "bagaev_subtypes.csv", index=False)
+
+    loaded = load_expression_data(data_dir)
+
+    np.testing.assert_array_equal(loaded.expression.to_numpy(), raw_counts.T)
+
+
+def test_raw_input_transform_does_not_invert_values(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame({"Ensembl_ID": ["ENSG1"], "s1": [7]}).to_csv(
+        data_dir / "_ONE.csv", index=False
+    )
+    pd.DataFrame({"sample_id": ["s1"], "subtype": ["a"]}).to_csv(
+        data_dir / "bagaev_subtypes.csv", index=False
+    )
+
+    loaded = load_expression_data(data_dir, input_transform="raw")
+
+    assert loaded.expression.loc["s1", "ENSG1"] == 7
 
 
 def test_loader_requires_ensembl_id_column(tmp_path):

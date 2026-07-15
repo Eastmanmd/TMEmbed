@@ -20,6 +20,7 @@ from tumor_subtyper.data import (
     load_expression_data,
     load_new_cohort,
     normalize_expression,
+    restore_raw_counts,
 )
 from tumor_subtyper.embedding import get_embedding_scvi, train_scvi_embedding
 from tumor_subtyper.mock import MockDataPaths, generate_mock_data
@@ -43,6 +44,7 @@ __all__ = [
     "load_expression_data",
     "load_new_cohort",
     "normalize_expression",
+    "restore_raw_counts",
     "predict_new_cohort",
     "predict_subtypes",
     "save_classifier",
