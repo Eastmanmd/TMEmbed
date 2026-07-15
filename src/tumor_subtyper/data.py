@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 DEFAULT_LABEL_FILE = "bagaev_subtypes.csv"
+SUPPORTED_EXPRESSION_SUFFIXES = {".csv", ".tsv", ".tab"}
 
 
 @dataclass(frozen=True)
@@ -43,8 +44,19 @@ def normalize_expression(expression: pd.DataFrame, *, target_sum: float = 10_000
     return np.log1p(normalized)
 
 
+def _separator_for(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return ","
+    if suffix in {".tsv", ".tab"}:
+        return "\t"
+    raise ValueError(
+        f"Unsupported table format for {path}; expected .csv, .tsv, or .tab."
+    )
+
+
 def _read_expression_file(path: Path) -> pd.DataFrame:
-    frame = pd.read_csv(path, index_col=0)
+    frame = pd.read_csv(path, sep=_separator_for(path), index_col=0)
     if frame.empty:
         raise ValueError(f"Expression file is empty: {path}")
     if frame.index.has_duplicates:
@@ -73,7 +85,7 @@ def _cohort_from_filename(path: Path) -> str:
 
 
 def _read_labels(path: Path, sample_column: str, label_column: str) -> pd.Series:
-    labels = pd.read_csv(path)
+    labels = pd.read_csv(path, sep=_separator_for(path))
     missing = {sample_column, label_column} - set(labels.columns)
     if missing:
         raise ValueError(f"Label file {path} is missing columns: {sorted(missing)}")
@@ -107,11 +119,17 @@ def load_expression_data(
         raise FileNotFoundError(f"Label file not found: {label_path}")
 
     if cohort_files is None:
-        files = sorted(path for path in directory.glob("*.csv") if path.name != label_file)
+        files = sorted(
+            path
+            for path in directory.iterdir()
+            if path.is_file()
+            and path.suffix.lower() in SUPPORTED_EXPRESSION_SUFFIXES
+            and path.name != label_file
+        )
     else:
         files = [directory / path for path in cohort_files]
     if not files:
-        raise FileNotFoundError(f"No cohort CSV files found in {directory}")
+        raise FileNotFoundError(f"No cohort CSV/TSV files found in {directory}")
 
     frames: list[pd.DataFrame] = []
     cohort_parts: list[pd.Series] = []

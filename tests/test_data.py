@@ -42,6 +42,29 @@ def test_loader_aligns_gene_order(tmp_path):
     assert loaded.expression.loc["s3", "A"] == 7
 
 
+def test_loader_reads_tsv_cohorts_and_labels(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    first = pd.DataFrame({"A": [1, 2], "B": [3, 4]}, index=["s1", "s2"])
+    second = pd.DataFrame({"B": [5, 6], "A": [7, 8]}, index=["s3", "s4"])
+    first.to_csv(data_dir / "_ONE.tsv", sep="\t")
+    second.to_csv(data_dir / "_TWO.tab", sep="\t")
+    pd.DataFrame(
+        {"sample_id": ["s1", "s2", "s3", "s4"], "subtype": ["a", "b", "a", "b"]}
+    ).to_csv(data_dir / "bagaev_subtypes.tsv", sep="\t", index=False)
+
+    loaded = load_expression_data(data_dir, label_file="bagaev_subtypes.tsv")
+
+    assert loaded.expression.shape == (4, 2)
+    assert loaded.cohorts.to_dict() == {
+        "s1": "ONE",
+        "s2": "ONE",
+        "s3": "TWO",
+        "s4": "TWO",
+    }
+    assert loaded.expression.loc["s3", "A"] == 7
+
+
 def test_loader_rejects_missing_labels(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()

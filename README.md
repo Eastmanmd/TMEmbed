@@ -8,8 +8,8 @@ the mock files later without changing the modeling APIs.
 
 ## Data contract
 
-Training data are CSV files with samples in rows, genes in columns, and sample IDs
-in the first column:
+Training data are CSV or tab-separated TSV files with samples in rows, genes in
+columns, and sample IDs in the first column:
 
 ```text
 data/
@@ -17,6 +17,10 @@ data/
 ├── _LUAD.csv                 # cohort is derived as "LUAD"
 └── bagaev_subtypes.csv       # columns: sample_id, subtype
 ```
+
+The `.csv`, `.tsv`, and `.tab` extensions are supported for both cohort matrices
+and the label table. Supply a non-default label filename with
+`label_file="bagaev_subtypes.tsv"`.
 
 All cohorts must contain the same genes (column order may differ), sample IDs must
 be globally unique, and values must be finite and non-negative. By default the
