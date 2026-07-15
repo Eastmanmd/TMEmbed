@@ -8,6 +8,12 @@ from tumor_subtyper.classifiers import (
     save_classifier,
     train_classifier,
 )
+from tumor_subtyper.batch_correction import (
+    compute_batch_mixing_metrics,
+    get_batch_corrected_embedding,
+    get_embedding_combat,
+    get_embedding_harmony,
+)
 from tumor_subtyper.data import (
     ExpressionDataset,
     load_expression_data,
@@ -25,8 +31,12 @@ __all__ = [
     "MockDataPaths",
     "PredictionResult",
     "TrainingResult",
+    "compute_batch_mixing_metrics",
     "generate_mock_data",
     "get_embedding_scvi",
+    "get_batch_corrected_embedding",
+    "get_embedding_combat",
+    "get_embedding_harmony",
     "load_classifier",
     "load_expression_data",
     "load_new_cohort",

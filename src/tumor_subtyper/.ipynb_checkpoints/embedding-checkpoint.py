@@ -38,7 +38,7 @@ def train_scvi_embedding(
     model_path: str | Path,
     *,
     n_latent: int = 20,
-    max_epochs: int = 300,
+    max_epochs: int = 200,
     random_state: int = 42,
     train_kwargs: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
@@ -65,12 +65,7 @@ def train_scvi_embedding(
     adata.obs["id"] = adata.obs_names
     scvi.model.SCVI.setup_anndata(adata, batch_key="batch")
     model = scvi.model.SCVI(adata, n_latent=n_latent)
-    kwargs: dict[str, Any] = {
-        "max_epochs": max_epochs,
-        "early_stopping": True,
-        "early_stopping_patience": 30,
-        "check_val_every_n_epoch": 1,
-    }
+    kwargs: dict[str, Any] = {"max_epochs": max_epochs}
     if train_kwargs:
         kwargs.update(train_kwargs)
     model.train(**kwargs)
@@ -110,3 +105,4 @@ def get_embedding_scvi(bulk_df: pd.DataFrame, model_path: str | Path) -> pd.Data
     embeddings_df = pd.DataFrame(embeddings, index=adata.obs_names)
     embeddings_df.columns = "scVI_" + embeddings_df.columns.astype(str)
     return embeddings_df
+

@@ -20,9 +20,10 @@ data/
 
 All cohorts must contain the same genes (column order may differ), sample IDs must
 be globally unique, and values must be finite and non-negative. By default the
-pipeline performs per-sample 10,000-library-size normalization followed by `log1p`,
-records that transform in the artifact manifest, and repeats it for unseen data.
-Pass `normalize=False` when inputs are already normalized or when using raw counts.
+pipeline passes raw count-like values to scVI, records that choice in the artifact
+manifest, and uses raw count-like values for unseen data. Pass `normalize=True`
+only for an explicitly normalized scVI experiment; scVI's count likelihood is
+designed for raw counts.
 
 ## Install
 
@@ -95,6 +96,9 @@ with frozen reference parameters), and then applies the saved classifier.
 - `normalize_expression`: deterministic library-size and `log1p` normalization.
 - `train_scvi_embedding`: train the batch-aware reference model.
 - `get_embedding_scvi`: query-map unseen samples into the reference latent space.
+- `compute_batch_mixing_metrics`: batch silhouette and neighborhood batch LISI.
+- `get_embedding_combat` / `get_embedding_harmony`: jointly correct normalized
+  training cohorts and return PCA-scale embeddings for method comparison.
 - `train_classifier`: five-fold stratified CV plus a final XGBoost or random forest.
 - `train_pipeline` / `predict_new_cohort`: artifact-backed end-to-end workflows.
 
@@ -102,8 +106,12 @@ with frozen reference parameters), and then applies the saved classifier.
 
 Representing bulk samples as AnnData observations makes the requested scVI workflow
 possible, but does not make bulk profiles biologically equivalent to single cells.
-Also, scVI's count likelihood is normally designed for raw counts, whereas this
-requested workflow defaults to normalized bulk expression. Before production use,
-that preprocessing choice and scVI's assumptions should be validated on real
-held-out cohorts. Query mapping assigns the unseen cohort the placeholder batch
-`bulk`, following the supplied reference implementation.
+The reference model is trained on raw counts with cohort registered as its batch
+variable, a 300-epoch ceiling, and early stopping. Before production use, scVI's
+assumptions should be validated on real held-out cohorts. Query mapping assigns the
+unseen cohort the placeholder batch `bulk`, following the supplied reference
+implementation.
+
+ComBat and Harmony are available as optional joint-cohort comparisons on normalized
+expression. They do not expose the same frozen-reference query mapping as scVI, so
+the package does not silently use them to transform independently arriving cohorts.

@@ -28,12 +28,12 @@ def _parser() -> argparse.ArgumentParser:
     train.add_argument("--model", choices=("xgboost", "random_forest"), default="xgboost")
     train.add_argument("--folds", type=int, default=5)
     train.add_argument("--latent-dim", type=int, default=20)
-    train.add_argument("--epochs", type=int, default=200)
+    train.add_argument("--epochs", type=int, default=300)
     train.add_argument("--seed", type=int, default=42)
     train.add_argument(
-        "--no-normalize",
+        "--normalize",
         action="store_true",
-        help="use input values as-is (recommended when inputs are already normalized)",
+        help="library-normalize and log1p before scVI (raw counts are the default)",
     )
 
     predict = commands.add_parser("predict", help="predict an unseen bulk cohort")
@@ -68,7 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             n_latent=args.latent_dim,
             max_epochs=args.epochs,
             random_state=args.seed,
-            normalize=not args.no_normalize,
+            normalize=args.normalize,
         )
         print(result.classifier_result.fold_metrics.to_string(index=False))
         print(f"Artifacts: {result.artifact_dir}")

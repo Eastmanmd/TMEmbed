@@ -24,8 +24,14 @@ scvi = [
   "scvi-tools>=1.1",
 ]
 xgboost = ["xgboost>=2.0"]
+batch-correction = [
+  "anndata>=0.10",
+  "scanpy>=1.10",
+  "harmonypy>=0.0.10",
+]
 all = [
   "anndata>=0.10",
+  "harmonypy>=0.0.10",
   "scanpy>=1.10",
   "scvi-tools>=1.1",
   "xgboost>=2.0",
