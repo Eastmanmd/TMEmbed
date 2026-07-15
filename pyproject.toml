@@ -34,6 +34,12 @@ dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
 ]
+tutorial = [
+  "jupyterlab>=4.0",
+  "matplotlib>=3.8",
+  "seaborn>=0.13",
+  "umap-learn>=0.5.6",
+]
 
 [project.scripts]
 tumor-subtyper = "tumor_subtyper.cli:main"
@@ -44,4 +50,3 @@ packages = ["src/tumor_subtyper"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-
