@@ -68,6 +68,20 @@ print(training.classifier_result.fold_metrics)
 print(prediction.predictions.head())
 ```
 
+## Tutorials
+
+The first notebook walks through raw-expression PCA/UMAP, scVI batch-corrected
+embeddings, subtype classification, query mapping of an unseen cohort, and joint
+training/test visualizations:
+
+- [`tutorial/01_mock_tcga_scvi_subtyping.ipynb`](tutorial/01_mock_tcga_scvi_subtyping.ipynb)
+
+Install its visualization dependencies with:
+
+```bash
+python -m pip install -e '.[all,tutorial]'
+```
+
 Training saves the scVI reference model, classifier bundle, gene/latent-feature
 manifest, CV metrics, out-of-fold predictions, and training embeddings. Prediction
 aligns new data to the saved training genes, uses scVI query mapping (a forward pass
