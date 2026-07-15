@@ -16,6 +16,7 @@ from tumor_subtyper.batch_correction import (
 )
 from tumor_subtyper.data import (
     ExpressionDataset,
+    canonicalize_tcga_sample_id,
     load_expression_data,
     load_new_cohort,
     normalize_expression,
@@ -31,6 +32,7 @@ __all__ = [
     "MockDataPaths",
     "PredictionResult",
     "TrainingResult",
+    "canonicalize_tcga_sample_id",
     "compute_batch_mixing_metrics",
     "generate_mock_data",
     "get_embedding_scvi",

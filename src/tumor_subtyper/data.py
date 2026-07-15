@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Sequence
 
 import numpy as np
@@ -11,6 +12,11 @@ import pandas as pd
 
 DEFAULT_LABEL_FILE = "bagaev_subtypes.csv"
 SUPPORTED_EXPRESSION_SUFFIXES = {".csv", ".tsv", ".tab"}
+GENE_ID_COLUMN = "Ensembl_ID"
+TCGA_SAMPLE_BARCODE = re.compile(
+    r"^(TCGA-[A-Za-z0-9]{2}-[A-Za-z0-9]{4})-[A-Za-z0-9]{3}$",
+    flags=re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -44,6 +50,18 @@ def normalize_expression(expression: pd.DataFrame, *, target_sum: float = 10_000
     return np.log1p(normalized)
 
 
+def canonicalize_tcga_sample_id(sample_id: str) -> str:
+    """Return the patient barcode used to match TCGA samples to subtype labels.
+
+    A sample barcode such as ``TCGA-38-7271-01A`` becomes ``TCGA-38-7271``.
+    Patient-level TCGA barcodes and non-TCGA development IDs are unchanged.
+    """
+
+    value = str(sample_id)
+    match = TCGA_SAMPLE_BARCODE.fullmatch(value)
+    return match.group(1).upper() if match else value
+
+
 def _separator_for(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".csv":
@@ -56,13 +74,24 @@ def _separator_for(path: Path) -> str:
 
 
 def _read_expression_file(path: Path) -> pd.DataFrame:
-    frame = pd.read_csv(path, sep=_separator_for(path), index_col=0)
-    if frame.empty:
+    table = pd.read_csv(path, sep=_separator_for(path))
+    if table.empty:
         raise ValueError(f"Expression file is empty: {path}")
+    if GENE_ID_COLUMN not in table.columns:
+        raise ValueError(
+            f"Expression file {path} must contain an '{GENE_ID_COLUMN}' column."
+        )
+    if table[GENE_ID_COLUMN].isna().any():
+        raise ValueError(f"Missing Ensembl IDs in {path}")
+    table[GENE_ID_COLUMN] = table[GENE_ID_COLUMN].astype(str)
+    if table[GENE_ID_COLUMN].duplicated().any():
+        raise ValueError(f"Duplicate Ensembl IDs in {path}")
+    sample_columns = table.columns.drop(GENE_ID_COLUMN)
+    if len(sample_columns) == 0:
+        raise ValueError(f"Expression file contains no sample columns: {path}")
+    frame = table.set_index(GENE_ID_COLUMN).T
     if frame.index.has_duplicates:
         raise ValueError(f"Duplicate sample IDs in {path}")
-    if frame.columns.has_duplicates:
-        raise ValueError(f"Duplicate gene names in {path}")
     try:
         frame = frame.astype(float)
     except (TypeError, ValueError) as exc:
@@ -74,6 +103,8 @@ def _read_expression_file(path: Path) -> pd.DataFrame:
         raise ValueError(f"Expression values must be non-negative in {path}")
     frame.index = frame.index.astype(str)
     frame.columns = frame.columns.astype(str)
+    frame.index.name = "sample_id"
+    frame.columns.name = GENE_ID_COLUMN
     return frame
 
 
@@ -98,6 +129,39 @@ def _read_labels(path: Path, sample_column: str, label_column: str) -> pd.Series
     return labels.set_index(sample_column)[label_column].astype(str)
 
 
+def _match_labels_to_expression(
+    expression_index: pd.Index, labels: pd.Series
+) -> pd.Series:
+    expression_match_ids = pd.Index(
+        [canonicalize_tcga_sample_id(value) for value in expression_index],
+        name="match_id",
+    )
+    label_match_ids = pd.Index(
+        [canonicalize_tcga_sample_id(value) for value in labels.index],
+        name="match_id",
+    )
+    canonical_labels = pd.DataFrame(
+        {"match_id": label_match_ids, "subtype": labels.to_numpy()}
+    )
+    conflicting = canonical_labels.groupby("match_id")["subtype"].nunique()
+    conflicting = conflicting[conflicting > 1]
+    if len(conflicting):
+        raise ValueError(
+            "Conflicting subtype labels after TCGA patient-barcode matching: "
+            f"{conflicting.index[:5].tolist()}"
+        )
+    canonical_labels = canonical_labels.drop_duplicates("match_id").set_index(
+        "match_id"
+    )["subtype"]
+    matched = canonical_labels.reindex(expression_match_ids)
+    if matched.isna().any():
+        missing = expression_match_ids[matched.isna()]
+        raise ValueError(f"Missing labels for samples: {missing[:5].tolist()}")
+    return pd.Series(
+        matched.to_numpy(), index=expression_index, name="subtype", dtype=str
+    )
+
+
 def load_expression_data(
     data_dir: str | Path,
     *,
@@ -108,7 +172,8 @@ def load_expression_data(
 ) -> ExpressionDataset:
     """Load labeled cohort CSV files from ``data_dir``.
 
-    Each expression CSV is samples-by-genes with sample IDs in its first column.
+    Each expression table is genes-by-samples with an ``Ensembl_ID`` column and
+    one remaining column per sample. It is transposed to samples-by-genes in memory.
     Cohort membership is derived from the filename (``_BRCA.csv`` -> ``BRCA``).
     Genes must match across cohorts; ordering is aligned to the first file.
     """
@@ -156,10 +221,7 @@ def load_expression_data(
     expression = pd.concat(frames, axis=0)
     cohorts = pd.concat(cohort_parts).loc[expression.index]
     labels = _read_labels(label_path, sample_column, label_column)
-    missing_labels = expression.index.difference(labels.index)
-    if len(missing_labels):
-        raise ValueError(f"Missing labels for samples: {missing_labels[:5].tolist()}")
-    labels = labels.loc[expression.index].rename("subtype")
+    labels = _match_labels_to_expression(expression.index, labels)
     return ExpressionDataset(expression=expression, labels=labels, cohorts=cohorts)
 
 

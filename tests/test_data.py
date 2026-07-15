@@ -1,7 +1,12 @@
 import pandas as pd
 import pytest
 
-from tumor_subtyper.data import load_expression_data, load_new_cohort, normalize_expression
+from tumor_subtyper.data import (
+    canonicalize_tcga_sample_id,
+    load_expression_data,
+    load_new_cohort,
+    normalize_expression,
+)
 from tumor_subtyper.mock import generate_mock_data
 
 
@@ -29,10 +34,10 @@ def test_generate_and_load_mock_data(tmp_path):
 def test_loader_aligns_gene_order(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    first = pd.DataFrame({"A": [1, 2], "B": [3, 4]}, index=["s1", "s2"])
-    second = pd.DataFrame({"B": [5, 6], "A": [7, 8]}, index=["s3", "s4"])
-    first.to_csv(data_dir / "_ONE.csv")
-    second.to_csv(data_dir / "_TWO.csv")
+    first = pd.DataFrame({"Ensembl_ID": ["A", "B"], "s1": [1, 3], "s2": [2, 4]})
+    second = pd.DataFrame({"Ensembl_ID": ["B", "A"], "s3": [5, 7], "s4": [6, 8]})
+    first.to_csv(data_dir / "_ONE.csv", index=False)
+    second.to_csv(data_dir / "_TWO.csv", index=False)
     pd.DataFrame(
         {"sample_id": ["s1", "s2", "s3", "s4"], "subtype": ["a", "b", "a", "b"]}
     ).to_csv(data_dir / "bagaev_subtypes.csv", index=False)
@@ -45,10 +50,10 @@ def test_loader_aligns_gene_order(tmp_path):
 def test_loader_reads_tsv_cohorts_and_labels(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    first = pd.DataFrame({"A": [1, 2], "B": [3, 4]}, index=["s1", "s2"])
-    second = pd.DataFrame({"B": [5, 6], "A": [7, 8]}, index=["s3", "s4"])
-    first.to_csv(data_dir / "_ONE.tsv", sep="\t")
-    second.to_csv(data_dir / "_TWO.tab", sep="\t")
+    first = pd.DataFrame({"Ensembl_ID": ["A", "B"], "s1": [1, 3], "s2": [2, 4]})
+    second = pd.DataFrame({"Ensembl_ID": ["B", "A"], "s3": [5, 7], "s4": [6, 8]})
+    first.to_csv(data_dir / "_ONE.tsv", sep="\t", index=False)
+    second.to_csv(data_dir / "_TWO.tab", sep="\t", index=False)
     pd.DataFrame(
         {"sample_id": ["s1", "s2", "s3", "s4"], "subtype": ["a", "b", "a", "b"]}
     ).to_csv(data_dir / "bagaev_subtypes.tsv", sep="\t", index=False)
@@ -68,7 +73,9 @@ def test_loader_reads_tsv_cohorts_and_labels(tmp_path):
 def test_loader_rejects_missing_labels(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    pd.DataFrame({"A": [1]}, index=["s1"]).to_csv(data_dir / "_ONE.csv")
+    pd.DataFrame({"Ensembl_ID": ["A"], "s1": [1]}).to_csv(
+        data_dir / "_ONE.csv", index=False
+    )
     pd.DataFrame({"sample_id": [], "subtype": []}).to_csv(
         data_dir / "bagaev_subtypes.csv", index=False
     )
@@ -81,3 +88,68 @@ def test_normalization_has_fixed_library_scale_before_log():
     normalized = normalize_expression(expression, target_sum=100)
     restored = normalized.applymap(lambda value: __import__("numpy").expm1(value))
     assert restored.sum(axis=1).round(8).tolist() == [100.0, 100.0]
+
+
+def test_loader_requires_ensembl_id_column(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame({"gene": ["A"], "s1": [1]}).to_csv(
+        data_dir / "_ONE.csv", index=False
+    )
+    pd.DataFrame({"sample_id": ["s1"], "subtype": ["a"]}).to_csv(
+        data_dir / "bagaev_subtypes.csv", index=False
+    )
+    with pytest.raises(ValueError, match="Ensembl_ID"):
+        load_expression_data(data_dir)
+
+
+def test_tcga_sample_barcodes_match_patient_level_labels(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame(
+        {
+            "Ensembl_ID": ["ENSG1", "ENSG2"],
+            "TCGA-38-7271-01A": [1, 2],
+            "TCGA-A2-A0T2-11B": [3, 4],
+        }
+    ).to_csv(data_dir / "_BRCA.csv", index=False)
+    pd.DataFrame(
+        {
+            "sample_id": ["TCGA-38-7271", "TCGA-A2-A0T2"],
+            "subtype": ["TME_1", "TME_2"],
+        }
+    ).to_csv(data_dir / "bagaev_subtypes.csv", index=False)
+
+    loaded = load_expression_data(data_dir)
+
+    assert loaded.labels.to_dict() == {
+        "TCGA-38-7271-01A": "TME_1",
+        "TCGA-A2-A0T2-11B": "TME_2",
+    }
+    assert loaded.expression.index.tolist() == [
+        "TCGA-38-7271-01A",
+        "TCGA-A2-A0T2-11B",
+    ]
+
+
+def test_tcga_matching_rejects_conflicting_aliquot_labels(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame(
+        {"Ensembl_ID": ["ENSG1"], "TCGA-38-7271-01A": [1]}
+    ).to_csv(data_dir / "_BRCA.csv", index=False)
+    pd.DataFrame(
+        {
+            "sample_id": ["TCGA-38-7271-01A", "TCGA-38-7271-02B"],
+            "subtype": ["TME_1", "TME_2"],
+        }
+    ).to_csv(data_dir / "bagaev_subtypes.csv", index=False)
+
+    with pytest.raises(ValueError, match="Conflicting subtype labels"):
+        load_expression_data(data_dir)
+
+
+def test_tcga_canonicalization_leaves_mock_ids_unchanged():
+    assert canonicalize_tcga_sample_id("TCGA-38-7271-01A") == "TCGA-38-7271"
+    assert canonicalize_tcga_sample_id("TCGA-38-7271") == "TCGA-38-7271"
+    assert canonicalize_tcga_sample_id("MOCK_COHORT_01_0001") == "MOCK_COHORT_01_0001"

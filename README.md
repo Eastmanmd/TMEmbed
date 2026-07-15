@@ -8,8 +8,9 @@ the mock files later without changing the modeling APIs.
 
 ## Data contract
 
-Training data are CSV or tab-separated TSV files with samples in rows, genes in
-columns, and sample IDs in the first column:
+Training data are CSV or tab-separated TSV files with genes in rows. The required
+`Ensembl_ID` column contains gene identifiers, and every remaining column is a
+sample ID:
 
 ```text
 data/
@@ -21,6 +22,22 @@ data/
 The `.csv`, `.tsv`, and `.tab` extensions are supported for both cohort matrices
 and the label table. Supply a non-default label filename with
 `label_file="bagaev_subtypes.tsv"`.
+
+For example:
+
+```text
+Ensembl_ID       SAMPLE_001  SAMPLE_002
+ENSG00000000001  12          8
+ENSG00000000002  3           17
+```
+
+The loader transposes cohort matrices internally, returning samples in rows and
+Ensembl genes in columns to the modeling code.
+
+TCGA expression sample barcodes are matched to subtype labels at patient level.
+For example, expression sample `TCGA-38-7271-01A` is matched against label ID
+`TCGA-38-7271` by dropping the final `-01A` portion. Full expression sample IDs are
+preserved in embeddings and predictions. Non-TCGA mock sample IDs are unchanged.
 
 All cohorts must contain the same genes (column order may differ), sample IDs must
 be globally unique, and values must be finite and non-negative. By default the

@@ -44,7 +44,9 @@ def generate_mock_data(
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(random_state)
-    genes = pd.Index([f"GENE_{i:04d}" for i in range(n_genes)], name="gene")
+    genes = pd.Index(
+        [f"ENSG{i + 1:011d}" for i in range(n_genes)], name="Ensembl_ID"
+    )
     subtype_names = np.array([f"TME_{i + 1}" for i in range(n_subtypes)])
 
     baseline = rng.lognormal(mean=2.5, sigma=0.7, size=n_genes)
@@ -66,8 +68,8 @@ def generate_mock_data(
         mean *= library_effect[:, None]
         counts = rng.poisson(mean).astype(np.int64)
         sample_ids = [f"MOCK_{cohort}_{i + 1:04d}" for i in range(samples_per_cohort)]
-        frame = pd.DataFrame(counts, index=sample_ids, columns=genes)
-        frame.index.name = "sample_id"
+        frame = pd.DataFrame(counts.T, index=genes, columns=sample_ids)
+        frame.index.name = "Ensembl_ID"
         path = output / f"_{cohort}.csv"
         frame.to_csv(path)
         cohort_files.append(path)
@@ -87,8 +89,8 @@ def generate_mock_data(
         mean = baseline[None, :] * subtype_effect[labels] * unseen_batch[None, :]
         counts = rng.poisson(mean).astype(np.int64)
         sample_ids = [f"MOCK_UNSEEN_{i + 1:04d}" for i in range(n_new)]
-        new_frame = pd.DataFrame(counts, index=sample_ids, columns=genes)
-        new_frame.index.name = "sample_id"
+        new_frame = pd.DataFrame(counts.T, index=genes, columns=sample_ids)
+        new_frame.index.name = "Ensembl_ID"
         new_data_dir = output / "new_data"
         new_data_dir.mkdir(parents=True, exist_ok=True)
         new_cohort_file = new_data_dir / "new_unseen_cohort.csv"
