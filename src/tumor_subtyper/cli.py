@@ -26,6 +26,11 @@ def _parser() -> argparse.ArgumentParser:
     train.add_argument("data_dir", type=Path)
     train.add_argument("artifact_dir", type=Path)
     train.add_argument("--model", choices=("xgboost", "random_forest"), default="xgboost")
+    train.add_argument(
+        "--embedding-method",
+        choices=("scvi", "combat", "harmony"),
+        default="scvi",
+    )
     train.add_argument("--folds", type=int, default=5)
     train.add_argument("--latent-dim", type=int, default=20)
     train.add_argument("--epochs", type=int, default=300)
@@ -70,6 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.data_dir,
             args.artifact_dir,
             model_kind=args.model,
+            embedding_method=args.embedding_method,
             n_splits=args.folds,
             n_latent=args.latent_dim,
             max_epochs=args.epochs,

@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
+from tumor_subtyper.batch_correction import (
+    compute_batch_mixing_metrics,
+    get_batch_corrected_embedding,
+)
 from tumor_subtyper.classifiers import (
     ClassifierTrainingResult,
     ModelKind,
@@ -25,6 +29,8 @@ from tumor_subtyper.data import (
 )
 from tumor_subtyper.embedding import get_embedding_scvi, train_scvi_embedding
 
+EmbeddingMethod = Literal["scvi", "combat", "harmony"]
+
 
 @dataclass(frozen=True)
 class TrainingResult:
@@ -33,6 +39,7 @@ class TrainingResult:
     artifact_dir: Path
     embeddings: pd.DataFrame
     classifier_result: ClassifierTrainingResult
+    batch_metrics: pd.Series
 
 
 @dataclass(frozen=True)
@@ -50,6 +57,7 @@ def train_pipeline(
     label_file: str = "bagaev_subtypes.csv",
     cohort_files: list[str | Path] | None = None,
     input_transform: InputTransform = "log2p1",
+    embedding_method: EmbeddingMethod = "scvi",
     model_kind: ModelKind = "xgboost",
     n_splits: int = 5,
     n_latent: int = 20,
@@ -59,8 +67,14 @@ def train_pipeline(
     normalization_target_sum: float = 10_000.0,
     classifier_params: dict[str, Any] | None = None,
     scvi_train_kwargs: dict[str, Any] | None = None,
+    batch_correction_params: dict[str, Any] | None = None,
 ) -> TrainingResult:
-    """Load cohorts, train scVI, run CV, fit a classifier, and save artifacts."""
+    """Correct cohort effects, run CV, fit a classifier, and save artifacts.
+
+    ``embedding_method='scvi'`` trains a reference model that supports query mapping.
+    ComBat and Harmony jointly correct the training cohorts but do not support the
+    frozen-reference forward pass used by :func:`predict_new_cohort`.
+    """
 
     dataset = load_expression_data(
         data_dir,
@@ -70,21 +84,39 @@ def train_pipeline(
     )
     artifacts = Path(artifact_dir)
     artifacts.mkdir(parents=True, exist_ok=True)
-    scvi_path = artifacts / "scvi_model"
-    model_expression = (
-        normalize_expression(dataset.expression, target_sum=normalization_target_sum)
-        if normalize
-        else dataset.expression
-    )
-    embeddings = train_scvi_embedding(
-        model_expression,
-        dataset.cohorts,
-        scvi_path,
-        n_latent=n_latent,
-        max_epochs=max_epochs,
-        random_state=random_state,
-        train_kwargs=scvi_train_kwargs,
-    )
+    if embedding_method == "scvi":
+        scvi_path = artifacts / "scvi_model"
+        model_expression = (
+            normalize_expression(dataset.expression, target_sum=normalization_target_sum)
+            if normalize
+            else dataset.expression
+        )
+        embeddings = train_scvi_embedding(
+            model_expression,
+            dataset.cohorts,
+            scvi_path,
+            n_latent=n_latent,
+            max_epochs=max_epochs,
+            random_state=random_state,
+            train_kwargs=scvi_train_kwargs,
+        )
+    elif embedding_method in {"combat", "harmony"}:
+        if scvi_train_kwargs:
+            raise ValueError(
+                "scvi_train_kwargs can only be used with embedding_method='scvi'."
+            )
+        embeddings = get_batch_corrected_embedding(
+            dataset.expression,
+            dataset.cohorts,
+            method=embedding_method,
+            n_components=n_latent,
+            target_sum=normalization_target_sum,
+            random_state=random_state,
+            method_kwargs=batch_correction_params,
+        )
+    else:
+        raise ValueError("embedding_method must be 'scvi', 'combat', or 'harmony'.")
+    batch_metrics = compute_batch_mixing_metrics(embeddings, dataset.cohorts)
     result = train_classifier(
         embeddings,
         dataset.labels,
@@ -97,18 +129,29 @@ def train_pipeline(
     result.fold_metrics.to_csv(artifacts / "cv_metrics.csv", index=False)
     result.out_of_fold_predictions.to_csv(artifacts / "oof_predictions.csv")
     embeddings.to_csv(artifacts / "training_embeddings.csv")
+    batch_metrics.to_csv(artifacts / "batch_metrics.csv", header=True)
     manifest = {
         "package_format_version": 1,
         "genes": dataset.expression.columns.astype(str).tolist(),
         "latent_features": embeddings.columns.astype(str).tolist(),
         "model_kind": model_kind,
+        "embedding_method": embedding_method,
+        "query_mapping_supported": embedding_method == "scvi",
         "label_file": label_file,
         "input_transform": input_transform,
-        "normalization": "library_log1p" if normalize else "none",
-        "normalization_target_sum": normalization_target_sum if normalize else None,
+        "normalization": (
+            "library_log1p"
+            if normalize or embedding_method in {"combat", "harmony"}
+            else "none"
+        ),
+        "normalization_target_sum": (
+            normalization_target_sum
+            if normalize or embedding_method in {"combat", "harmony"}
+            else None
+        ),
     }
     (artifacts / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    return TrainingResult(artifacts, embeddings, result)
+    return TrainingResult(artifacts, embeddings, result, batch_metrics)
 
 
 def predict_new_cohort(
@@ -124,6 +167,13 @@ def predict_new_cohort(
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Training manifest not found: {manifest_path}")
     manifest = json.loads(manifest_path.read_text())
+    embedding_method = manifest.get("embedding_method", "scvi")
+    if embedding_method != "scvi":
+        raise NotImplementedError(
+            f"Artifacts trained with {embedding_method!r} do not support frozen-reference "
+            "prediction for an independently arriving cohort. Use embedding_method='scvi' "
+            "when query mapping is required."
+        )
     expression = load_new_cohort(
         cohort_file,
         reference_genes=manifest["genes"],

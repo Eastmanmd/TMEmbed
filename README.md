@@ -96,6 +96,23 @@ print(training.classifier_result.fold_metrics)
 print(prediction.predictions.head())
 ```
 
+Choose the training embedding method with `embedding_method`:
+
+```python
+combat_training = train_pipeline(
+    mock.data_dir,
+    "artifacts/combat",
+    embedding_method="combat",  # or "harmony"
+    model_kind="random_forest",
+)
+```
+
+All three methods produce embeddings, classifier artifacts, cross-validation
+results, and `batch_metrics.csv`. Only `embedding_method="scvi"` supports the saved
+reference forward pass in `predict_new_cohort()`. ComBat and Harmony perform joint
+correction of the cohorts supplied during training and do not expose an equivalent
+frozen query transform.
+
 ## Tutorials
 
 The first notebook walks through raw-expression PCA/UMAP, scVI batch-corrected
